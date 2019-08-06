@@ -58,7 +58,13 @@ static void system_controller_callback(uc_engine *uc,
 static void chipid_callback(uc_engine *uc,
     uc_mem_type type, uint64_t address, int size, int64_t value, void *user_data);
 
+static void pwm_callback(uc_engine *uc,
+    uc_mem_type type, uint64_t address, int size, int64_t value, void *user_data);
+
 static void mct_callback(uc_engine *uc,
+    uc_mem_type type, uint64_t address, int size, int64_t value, void *user_data);
+
+static void ufs_callback(uc_engine *uc,
     uc_mem_type type, uint64_t address, int size, int64_t value, void *user_data);
 
 static void i2c_bulk_read(uc_engine *uc, uint64_t address, uint32_t size, void *user_data);
@@ -72,6 +78,7 @@ static int reg_ids[] = {
 	UC_ARM64_REG_X17, UC_ARM64_REG_X18, UC_ARM64_REG_X19, UC_ARM64_REG_X20,
 	UC_ARM64_REG_X21, UC_ARM64_REG_X22, UC_ARM64_REG_X23, UC_ARM64_REG_X24,
 	UC_ARM64_REG_X25, UC_ARM64_REG_X26, UC_ARM64_REG_X27, UC_ARM64_REG_X28,
+	UC_ARM64_REG_X29,
 };
 
 static char *reg_names[] = {
@@ -83,6 +90,7 @@ static char *reg_names[] = {
 	"x17", "x18", "x19", "x20",
 	"x21", "x22", "x23", "x24",
 	"x25", "x26", "x27", "x28",
+	"x29",
 };
 
 struct device pinctrl0 = {
@@ -191,7 +199,7 @@ struct device uart0 = {
 struct device pwm = {
 	.base = 0x10510000,
 	.size = 0x1000,
-	.callback = NULL,
+	.callback = NULL, // pwm_callback,
 	.state = NULL
 };
 
@@ -231,7 +239,7 @@ struct device speedy = {
 struct device ufs = {
 	.base = 0x11110000,
 	.size = 0x21000,
-	.callback = NULL,
+	.callback = ufs_callback,
 	.state = NULL
 };
 
@@ -265,22 +273,29 @@ struct memory_mapping memory_map[] = {
 	{ 0x100000000,0x00001000, UC_PROT_ALL },
 	{ 0xfd900000, 0x00100000, UC_PROT_ALL },
 	{ 0x02030000, 0x00010000, UC_PROT_ALL },
+	{ 0x02050000, 0x00010000, UC_PROT_ALL },
 	{ 0x15c30000, 0x00001000, UC_PROT_ALL },
 	{ 0x15850000, 0x00020000, UC_PROT_ALL },
 	{ 0x15970000, 0x00020000, UC_PROT_ALL },
 	{ 0x10400000, 0x00002000, UC_PROT_ALL },
 	{ 0xef000000, 0x00100000, UC_PROT_ALL },
 	{ 0xfda00000, 0x01e00000, UC_PROT_ALL }, // exynos_ss
+	{ 0x10070000, 0x00010000, UC_PROT_ALL }, // BIG
 	{ 0x00000000, 0x00000000, UC_PROT_NONE },
 };
 
 struct patch patches[] = {
-	{ 0x8f073654, 0x07, 0, 0 },
-	{ 0x8f07269c, 0x00, 0, 0 },
-	{ 0x8f073bbc, 0x01, 0, 0 }, // ccic_is_max77705
+	{ 0x8f073654, 0x07, 0, NULL }, // max77705_read_adc
+	{ 0x8f07269c, 0x00, 0, NULL }, // ccic_wait_auth
+	{ 0x8f073bbc, 0x01, 0, NULL }, // ccic_is_max77705
 	{ 0x8f052c10, 0x00, 0, i2c_bulk_read },
-	{ 0x8f04fdcc, 0x00, 0, 0 },
-	{ 0x8f002324, 0x01, 0, 0 },
+	{ 0x8f04fdcc, 0x00, 0, NULL },
+	{ 0x8f002324, 0x01, 0, NULL }, // supervisor call
+	{ 0x8f01a084, 0x00, 0, NULL }, // mmc_init
+	// { 0x8f05600c, 0x00, 0, NULL }, // mmu_enable
+	{ 0x8f006470, 0x00, 0, NULL }, // dram training data
+	{ 0x8f05dfc0, 0x00, 0, NULL }, // ufs_send_cmd_uipu
+	{ 0x8f02c4f4, 0x00, 0, NULL }, // mobiload_cmd
 	{ 0, 0, 0, 0}
 };
 
@@ -407,6 +422,24 @@ chipid_callback(uc_engine *uc, uc_mem_type type, uint64_t address,
 	uc_mem_write(uc, address, &val, sizeof(uint32_t));
 }
 
+static void pwm_callback(uc_engine *uc, uc_mem_type type, uint64_t address,
+    int size, int64_t value, void *user_data)
+{
+	uint32_t val;
+	if (type != UC_MEM_READ)
+		return;
+	switch (address) {
+	case 0x1051003c:
+		val = 0x00000000;
+		uc_mem_write(uc, address, &val, sizeof(uint32_t));
+		break;
+	case 0x10510040:
+		val = 0x00000000;
+		uc_mem_write(uc, address, &val, sizeof(uint32_t));
+		break;
+	}
+}
+
 static void
 mct_callback(uc_engine *uc, uc_mem_type type, uint64_t address,
     int size, int64_t value, void *user_data)
@@ -432,6 +465,34 @@ mct_callback(uc_engine *uc, uc_mem_type type, uint64_t address,
 
 	uc_mem_write(uc, address, &val, sizeof(uint64_t));
 }
+
+static void ufs_callback(uc_engine *uc,
+    uc_mem_type type, uint64_t address, int size, int64_t value, void *user_data)
+{
+	uint32_t val;
+	if (type != UC_MEM_READ)
+		return ;
+
+	switch (address) {
+	case 0x11120000:
+		val = 0x00;
+		uc_mem_write(uc, address, &val, sizeof(uint32_t));
+		break;
+	case 0x11120034:
+	case 0x11120058:
+	case 0x11120078:
+		val = 0x01;
+		uc_mem_write(uc, address, &val, sizeof(uint32_t));
+		break;
+	case 0x11121150:
+		val = ~0ul ^ (1 << 2);
+		uc_mem_write(uc, address, &val, sizeof(uint32_t));
+		break;
+	default:
+		break;
+	}
+}
+
 
 static uc_err
 register_device(uc_engine *uc, struct device *dev)
@@ -508,20 +569,20 @@ dump_regs(uc_engine *uc)
 {
 
 	uint8_t code[4*32];
-	void *ptrs[32];
-	uint64_t regs[32];
+	void *ptrs[33];
+	uint64_t regs[33];
 	int i;
 
-	for (i = 0; i < 32; i++)
+	for (i = 0; i < 33; i++)
 		ptrs[i] = &regs[i];
 
-	uc_reg_read_batch(uc, reg_ids, ptrs, 32);
+	uc_reg_read_batch(uc, reg_ids, ptrs, 33);
 
 	printf("======================================================================\n");
 	printf("PSTATE:\n");
 	printf(" pc : 0x%016llx\t lr : 0x%016llx\t sp : 0x%016llx", regs[0], regs[1], regs[2]);
 
-	for (i = 3; i < 32; i++) {
+	for (i = 3; i < 33; i++) {
 		if (i != 0 && (i - 3) % 3 == 0) printf("\n");
 		printf("%s : 0x%016llx\t", reg_names[i], regs[i]);
 	}
@@ -666,6 +727,174 @@ end:
 	return;
 }
 
+static void
+hook_quit(uc_engine *uc, uint64_t address, uint32_t size, void *user_data)
+{
+	dump_regs(uc);
+	uc_emu_stop(uc);
+}
+
+static void
+interrupt_handler(uc_engine *uc, uint64_t address, uint32_t size, void *user_data)
+{
+	int64_t x0, x1, x2, pc, next_pc;
+	int64_t x21, val;
+	int64_t ret = 0xffffffff;
+	uc_reg_read(uc, UC_ARM64_REG_X0, &x0);
+	uc_reg_read(uc, UC_ARM64_REG_X1, &x1);
+	uc_reg_read(uc, UC_ARM64_REG_X2, &x2);
+	uc_reg_read(uc, UC_ARM64_REG_PC, &pc);
+	next_pc = pc + 4;
+
+	switch (x0) {
+	case 0xc2001014: // read_otp
+		uc_reg_read(uc, UC_ARM64_REG_X21, &x21);
+		switch (x1) {
+		case 0x10c:
+			ret = 0;
+			val = 0x01;
+			uc_mem_write(uc, x21, &val, sizeof(int64_t));
+			break;
+		case 0x10d: // MODEL_ID
+			ret = 0;
+			val = 0x2c;
+			uc_mem_write(uc, x21, &val, sizeof(int64_t));
+			break;
+		case 0x109:
+			ret = 0;
+			val = 0x02;
+			uc_mem_write(uc, x21, &val, sizeof(int64_t));
+			break;
+		case 0x102: // BAN_ROM_SEC_BOOT_KEY
+			ret = 0;
+			val = 0x00;
+			uc_mem_write(uc, x21, &val, sizeof(int64_t));
+			break;
+		case 0x101: // USE_ROM_SEC_BOOT_KEY
+			ret = 0;
+			val = 0x00;
+			uc_mem_write(uc, x21, &val, sizeof(int64_t));
+			break;
+		case 0x103:
+			ret = 0;
+			val = 0x00;
+			uc_mem_write(uc, x21, &val, sizeof(int64_t));
+			break;
+		case 0x106: // ANTIBRK_NS_AP0
+			ret = 0;
+			val = 0x02;
+			uc_mem_write(uc, x21, &val, sizeof(int64_t));
+			break;
+		case 0x107: // ANTIBRK_NS_AP1
+			ret = 0;
+			val = 0x02;
+			uc_mem_write(uc, x21, &val, sizeof(int64_t));
+			break;
+		case 0x10e: // COMMERCIAL
+			ret = 0;
+			val = 0x01;
+			uc_mem_write(uc, x21, &val, sizeof(int64_t));
+		case 0x10f: // TEST
+			ret = 0;
+			val = 0x00;
+			uc_mem_write(uc, x21, &val, sizeof(int64_t));
+			break;
+		case 0x110: // WARRANTY
+			ret = 0;
+			val = 0x00;
+			uc_mem_write(uc, x21, &val, sizeof(int64_t));
+			break;
+		case 0x104:
+			ret = 0;
+			break;
+		case 0x105: // JTAG_SW_LOCK
+			ret = 0;
+			val = 0x01;
+			uc_mem_write(uc, x21, &val, sizeof(int64_t));
+			break;
+		case 0x112: // ENABLE_ANTIBRK
+			ret = 0;
+			val = 0x01;
+			uc_mem_write(uc, x21, &val, sizeof(int64_t));
+			break;
+		case 0x111: // USE_PREORDER_KEY
+			ret = 0;
+			val = 0x01;
+			uc_mem_write(uc, x21, &val, sizeof(int64_t));
+			break;
+		case 0x113: // ENABLE_MODEL_ID
+			ret = 0;
+			val = 0x01;
+			uc_mem_write(uc, x21, &val, sizeof(int64_t));
+			break;
+		case 0x10b: // CUSTOM_FLAG
+			ret = 0;
+			switch (x2) {
+			case 0x06:
+				val = 0x0;
+				break;
+			case 0x07:
+				val = 0x1;
+				break;
+			case 0x08:
+				val = 0x1;
+				break;
+			case 0x09:
+				val = 0x0;
+				break;
+			default:
+				val = 0x0;
+				break;
+			}
+			uc_mem_write(uc, x21, &val, sizeof(int64_t));
+			break;
+		default:
+			goto fail;
+		}
+		break;
+
+	case 0xffffff0d: // SMC Read
+		switch (x1) {
+		case 0x0:
+			ret = 2;
+			break;
+		case 0x1:
+			ret = 1;
+			break;
+		default:
+			ret = 0;
+			break;
+		}
+		break;
+
+	case 0xc2001018:
+		ret = 0;
+		break;
+
+	default:
+		goto fail;
+		break;
+	}
+
+	uc_reg_write(uc, UC_ARM64_REG_X0, &ret);
+	uc_reg_write(uc, UC_ARM64_REG_PC, &next_pc);
+
+	return;
+
+fail:
+	dump_regs(uc);
+	uc_emu_stop(uc);
+}
+
+static void
+force_debug_hook(uc_engine *uc, uc_mem_type type, uint64_t address,
+    int size, int64_t value, void *user_data)
+{
+	uint64_t val = 0x00;
+	uc_mem_write(uc, 0x8f1041c0, &val, sizeof(uint64_t));
+	return;
+}
+
 int
 main(int argc, char **argv)
 {
@@ -674,7 +903,7 @@ main(int argc, char **argv)
 	int64_t sp = INITIAL_SP;
 	int64_t reg;
 	uint64_t end;
-	uc_hook trace, chipid;
+	uc_hook trace, chipid, allocation, stop, interrupt, force_debug;
 
 	if (argc < 2) {
 		printf("usage: %s <bl2>\n", argv[0]);
@@ -701,9 +930,14 @@ main(int argc, char **argv)
 	reg |= 0x300000;
 	uc_reg_write(uc, UC_ARM64_REG_CPACR_EL1, &reg);
 
-	uc_hook_add(uc, &trace, UC_HOOK_CODE, trace_hook, NULL, 1, 0);
+	// uc_hook_add(uc, &trace, UC_HOOK_CODE, trace_hook, NULL, 1, 0);
 	uc_hook_add(uc, &chipid, UC_HOOK_MEM_READ, pmic_chipid_callback, NULL,
-	    0x8f418430, 0x8f418430);
+	    0x8f4184c0, 0x8f4184c0);
+
+	uc_hook_add(uc, &stop, UC_HOOK_CODE, hook_quit, NULL, 0x8f05da58, 0x8f05da58);
+	uc_hook_add(uc, &force_debug, UC_HOOK_MEM_READ, force_debug_hook, NULL,
+	    0x8f1041c0, 0x8f1041c0);
+	uc_hook_add(uc, &interrupt, UC_HOOK_INTR, interrupt_handler, NULL, 1, 0);
 
 	init_patches(uc);
 
