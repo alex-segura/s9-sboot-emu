@@ -1,0 +1,47 @@
+#+TITLE: S9 S-Boot Emulator
+
+* Intro
+
+This is a small device emulator tailored towards running Samsung's S-BOOT and
+inspired by a QEMU version described [[https://hexdetective.blogspot.com/2017/02/exploiting-android-s-boot-getting.html][here]].
+
+I hacked this together because static reversing felt time-consuming and difficult to
+correlate with the actual device behavior.
+
+The code simulates enough of the devices to reach download mode (ODIN), and then
+processes odin commands received over stdio.
+
+Some other interesting prior work is described [[https://blog.quarkslab.com/reverse-engineering-samsung-s6-sboot-part-ii.html][here]] and [[https://allsoftwaresucks.blogspot.com/2019/05/reverse-engineering-samsung-exynos-9820.html][here]].
+
+* Dependencies
+
+- libcapstone
+- libunicorn
+
+* Building
+
+The included Makefile should work on OpenBSD. Untested on linux or other BSDs.
+
+: make emulate
+
+* Running
+
+The emulator assumes the base address of the second stage is
+~0x8f000000~. You'll need to obtain the firmware for the S9 and to extract the
+second-stage bootloader. The posts above describe well how to do this. After BL2
+is extraced, you can run:
+
+: ./emulate <sboot_bl2.bin>
+
+You should see the emulated UART logging to stdout.
+
+* Notes
+
+Based on a comparison of the emulator and device logs, there are a few
+significant deviations. Most notable is UFS: it is poorly implemented here and
+causes the emulator to pause as it encounters errors. Normally this would cause
+the device to drop into upload mode, but the emulator unprincipally redirects
+flow into download mode.
+
+Even with these flaws, it can still be useful to observe the emulated behavior,
+changes in the heap state, and for fuzzing download mode.
