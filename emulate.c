@@ -1513,8 +1513,8 @@ main(int argc, char **argv)
 	uint64_t end;
 	uc_hook trace, chipid, allocation, stop, interrupt, force_debug, free;
 
-	if (argc < 3) {
-		printf("usage: %s <bl2> <files>\n", argv[0]);
+	if (argc < 2) {
+		printf("usage: %s <bl2>>\n", argv[0]);
 		return -1;
 	}
 
@@ -1528,7 +1528,7 @@ main(int argc, char **argv)
 		goto cleanup;
 	}
 
-	init_filesystem(argv[2]);
+	// init_filesystem(argv[2]);
 
 	if ((err = load_image(uc, argv[1], CODE_BASE, &end)) != UC_ERR_OK) {
 		printf("load_image: %s\n", uc_strerror(err));
