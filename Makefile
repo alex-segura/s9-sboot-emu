@@ -1,6 +1,6 @@
-CFLAGS=-g -I/usr/local/include -I/usr/local/include/guile/2.2
+CFLAGS=-g -I/usr/local/include
 LDFLAGS=-L/usr/local/lib -Wl,-z,wxneeded
-LIBS=-lunicorn -lcapstone -lguile-2.2 -lgc -pthread
+LIBS=-lunicorn -lcapstone -pthread
 
 .PHONY: clean run
 
@@ -14,4 +14,4 @@ clean:
 	-rm -f emulate
 
 run: emulate
-	./emulate ./sm-g960f/sboot_bl2.bin
+	./emulate ./sm-g960f/sboot_bl2.bin ./sm-g960f/filesystem/
